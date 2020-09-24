@@ -1,0 +1,217 @@
+To create NodeJS app:
+    > npm init          // To initialize our nodejs app. Creates package.json file.
+    > npm i express     // that is how we're going to build our api
+
+    In server.js:
+        const express = require('express');
+        const app = express();      // To initialize our express application.
+        const server = require('http').Server(app);     // To create our server that's actually going to run. We don't need to install 'http', it's built-in
+        server.listen(3030);    // To listen on that server and actually run it. The server is localhost and port is 3030.
+
+        Add sefore last row - to create our first kind of url that we're going to hit (router):
+            app.get('/', (req, res) => {
+                res.status(200).send('Hello World!');
+            });
+
+    > npm i -g nodemon
+    > nodemon server.js // Now literally my app is running
+
+    Open localhost:3030 in browser.
+------------------------------------------------------------------------------------------------
+To Initialize our first view:
+    Create /views/room.ejs  // it's going to be an html file. ejs means embedded javascript inside html, it'll allow us to pass variable in the html.
+    To create html boilerplate: ! + click 'Enter':
+        - change '<title>Document</title>' to '<title>Zoom Clone</title>'
+        - add random text inside body tag   // Notice: nothing will change in browser -> To fix:
+            In server.js change 'res.status(200).send('Hello World!');' to 'res.render('room');' -> you'll see issue in broswer 'No default engine was specified and no extension was provided'. To fix:
+                > npm i ejs
+                In server.js add 'app.set('view engine', 'ejs');'
+------------------------------------------------------------------------------------------------
+To Create a room id:
+    > npm i uuid    // we're using uid4, we need the unique id which is your id. uiid will generate random ids so for every specific rule we we give a unique id 
+    In server.js add const '{ v4: uuidv4 } = require('uuid');'
+    We want to have id in localhost:3030 link. To create a new url:
+        app.get('/:room', (req, res) => {
+            res.render('room', { roomId: req.params.room });
+        });
+    Change 'res.render('room');' to  'res.redirect(`/${uuidv4()}`)'     // when you go to localhost:3030, it automatically will generate a uuid for you and redirect you to it 
+        // `${}` is called 'string literal'
+        Notice: when you refresh localhost:3030 in browser, it changes url to 'http://localhost:3030/c609a4fc-c942-4720-b7f4-00eb51e44756'
+    In room.ejs add <script>console.log('<%= roomId %>')</script>
+-------------------------------------------------------------------------------------------------
+To Add the ability to view our own Video:
+    Create /public/script.js    // This is where all our javascript for the front end is going to live.
+    In room.ejs add <script src="script.js"></script>   -> You'll see an error in Console in broswer: Uncaught SyntaxError: Unexpected token '<'. To fix:
+        To set the public url for our script file:
+            In server.js add 'app.use(express.static('public'))'
+    To create a video element and show our own video inside the page (functionality to access the media: audio/video):
+        In script.js add:
+            const myVideo = document.createElement('video');
+            myVideo.muted = true;
+
+            let myVideoStream;
+            navigator.mediaDevices
+                .getUserMedia({
+                    video: true,
+                    audio: true,
+                })
+                .then((stream) => {
+                    myVideoStream = stream;
+                    addVideoStream(myVideo, stream);
+                });
+
+            const addVideoStream = (video, stream) => {
+                video.srcObject = stream;
+                video.addEventListener('loadedmetadata', () => {
+                    video.play();
+                });
+            };
+        Notice: nothing will change in browser.
+        In room.ejs add to body tag: <div id="video-grid"></div>
+        In script.js add:
+            const videoGrid = document.getElementById('video-grid');
+            videoGrid.append(video);
+        Notice: error in Console "Uncaught (in promise) TypeError: Cannot read property 'append' of null". To fix:
+            In script.js add console.log('videoGrid', videoGrid);   -> it'll show 'null' 
+            In room.ejs move <script src="script.js"></script> down before closing </body> tag.
+
+    Create /public/style.css
+    In room.ejs add <link rel="stylesheet" href="style.css" />
+-------------------------------------------------------------------------------------------------
+To Add the ability to allow others to stream their video 
+    socket io https://socket.io/ is for real-time communication.
+        - with http you can only as a client make a request of the server but the server can only respond he cannot start the request to you 
+        - with socket io the server can communicate with you or you can communicate with them so with socket io the server doesn't have to wait for a request for you to start a message or something. that's why socktio is good for real time.
+    > npm i socket.io
+    In server.js add: 
+        const io = require('socket.io')(server);
+        io.on('connection', (socket) => {
+            socket.on('join-room', () => {
+                console.log('joined room');
+            });
+        });
+    In room.ejs add: <script src="/socket.io/socket.io.js" defer></script>
+    In script.js add: socket.emit('join-room');
+    Notice errors in Console in browser:
+        'Uncaught ReferenceError: socket is not defined'
+        'Uncaught (in promise) ReferenceError: Cannot access 'addVideoStream' before initialization'
+        To fix: 
+            in script.js add: const socket = io('/');
+            in room.ejs remove 'defer' in <script src="/socket.io/socket.io.js"></script>
+    Notice: you'll see 'joined room' in Terminal console.
+
+    When we join the room we need to add the stream so we join to put the link.
+    In room.ejs add: const ROOM_ID = '<%= roomId %>';
+    In script.js add ROOM_ID so it's socket.emit('join-room', ROOM_ID);
+    In server.js remove console.log('joined room'); and add 
+        socket.join(roomId);
+        socket.to(roomId).broadcast.emit('user-connected');
+    In script.js add: 
+        socket.on('user-connected', () => {
+            connectToNewUser();
+        });
+        const connectToNewUser = () => {
+            console.log('new user');
+        };
+    Read about webrtc & peerjs: https://webrtc.org/ & https://peerjs.com/
+    > npm i peer
+    In server.js add:
+        const {ExpressPeerServer} = require('peer');
+        const peerServer = ExpressPeerServer(server, {debug:true});
+        app.use('/peerjs', peerServer)
+    In room.ejs add <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script> (copied from peerjs documentation)
+    In script.js 
+        add: 
+            var peer = new Peer(undefined, { path: '/peerjs', host: '/', port: '3030' });
+            peer.on('open', (id) => {
+                // console.log(id);
+                socket.emit('join-room', ROOM_ID, id);
+            });
+        remove:
+            socket.emit('join-room', ROOM_ID);
+    In server.js add userId under socket.on()
+    In script.js:
+        add: userId under socket.on()
+        change:
+            const connectToNewUser = (userId, stream) => {
+                const call = peer.call(userId, stream);
+                const video = document.createElement('video');
+                call.on('stream', (userVideoStream) => {
+                    addVideoStream(video, userVideoStream);
+                });
+            };
+        move to promise: socket.on('user-connected', (userId) => {connectToNewUser(userId, stream);});
+        add to promise: 
+            peer.on('call', (call) => {
+                call.answer(stream);
+                const video = document.createElement('video');
+                call.on('stream', (userVideoStream) => {
+                    addVideoStream(video, userVideoStream);
+                });
+            });
+        Notice: now you can copy your localhost and insert that link in a new tab -> you'll see it's added to a stream - two people connected!!!
+-------------------------------------------------------------------------------------------------
+To Add styling:
+    In room.ejs change body section.
+    In style.css add styles.
+    > Icons are taken from fontawesome:
+        <script src="https://kit.fontawesome.com/c939d0e917.js"></script>
+        <i class="fas fa-microphone"></i>
+    > Bootstrap: to change font family
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+        <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js" integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN" crossorigin="anonymous"></script>
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js" integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV" crossorigin="anonymous"></script>
+
+-------------------------------------------------------------------------------------------------
+To Add the ability to create messages:
+    In script.js add inside of a promise:
+        let text = $('input');
+        $('html').keydown((e) => {
+            if (e.which == 13 && text.val().length !== 0) {
+                console.log(text.val());
+                socket.emit('message', text.val());
+                text.val('');
+            }
+        });
+        socket.on('createMessage', (message) => {
+            $('ul').append(`<li class="message"><b>user</b><br/>${message}</li>`);
+            scrollToBottom();
+        });
+        const scrollToBottom = () => {
+            let d = $('.main__chat__window');
+            d.scrollTop(d.prop('scrollHeight'));
+        };
+
+    In server.js add:
+        socket.on('message', (message) => {
+            io.to(roomId).emit('createMessage', message);
+        });
+
+-------------------------------------------------------------------------------------------------
+To Add mute button:
+    In script.js add 'muteUnmute' fn.
+    In room.ejs add onclick='muteUnmute()' on Mute button & 'main__mute_button' class.
+-------------------------------------------------------------------------------------------------
+To Add Stop Video button:
+    In script.js add 'playStop' fn.
+    In room.ejs add onclick='playStop()' on Mute button & 'main__video_button' class.
+-------------------------------------------------------------------------------------------------
+To deploy using Heroku:
+    > npm i -g heroku
+    > git init
+    Create .gitignore to exclude node_modules.
+    Change the port in script.js from '3030' to '443'.
+    In server.js change 'server.listen(3030);' to server.listen(process.env.PORT || 3030);  // process.env.PORT will work on heroku server.
+    > git add .
+    > git commit -m 'First commit'  // or 'Zoom Clone done'
+    > heroku create
+    > heroku create
+    > git push heroku master
+    > heroku ps:scale web=1
+    > heroku space
+    > heroku open
+
+
+
+
